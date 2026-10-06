@@ -9,6 +9,7 @@ import javax.swing.*;
 import javax.swing.border.*;
 import javax.swing.event.*;
 import javax.swing.plaf.FontUIResource;
+import javax.swing.text.JTextComponent;
 import javax.swing.plaf.basic.BasicButtonUI;
 import javax.swing.plaf.basic.BasicGraphicsUtils;
 import javax.swing.plaf.basic.BasicTabbedPaneUI;
@@ -18,7 +19,7 @@ import java.util.List;   // needed: java.awt.* also has a List
 /**
  * Swing front end for the grocery store. Run with:  java GroceryGUI
  *
- * Tabs: Checkout (sale), Products (inventory), Needs Attention (priority list), Reports, Speed Test.
+ * Tabs: Reports, Checkout (sale), Products (inventory), Needs Attention (priority list), Speed Test.
  * All the real work is done by Store, so the rules are the same as in the console version.
  *
  * Look and feel:
@@ -43,25 +44,36 @@ public class GroceryGUI extends JFrame {
     private static final int FONT_STEP = 1;      // each A- / A+ click or Ctrl +/- changes the size by this much
 
     // ---- colour palette
-    private static final Color BG = new Color(243, 247, 245);            // page background
-    private static final Color CARD = Color.WHITE;
-    private static final Color LINE = new Color(214, 222, 218);
-    private static final Color LINE_DARK = new Color(178, 192, 186);
-    private static final Color TEXT = new Color(30, 41, 38);
-    private static final Color MUTED = new Color(92, 108, 101);
-    private static final Color PRIMARY = new Color(31, 122, 90);
-    private static final Color PRIMARY_DARK = new Color(18, 84, 62);
-    private static final Color PRIMARY_LIGHT = new Color(214, 236, 226);
-    private static final Color DANGER = new Color(188, 48, 58);
-    private static final Color STRIPE = new Color(246, 250, 248);
-    private static final Color SEL_BG = new Color(200, 230, 216);
-    private static final Color TABLE_HEAD = new Color(228, 240, 234);
-    private static final Color GOOD_BG = new Color(224, 244, 233);
-    private static final Color BAD_BG = new Color(255, 230, 230);
-    private static final Color HINT_BG = new Color(255, 249, 230);
-    private static final Color HINT_ACCENT = new Color(231, 170, 40);
-    private static final Color GREEN = PRIMARY;
-    private static final Color RED = DANGER;
+    private static Color BG = new Color(243, 247, 245);            // page background
+    private static Color CARD = Color.WHITE;
+    private static Color LINE = new Color(214, 222, 218);
+    private static Color LINE_DARK = new Color(178, 192, 186);
+    private static Color TEXT = new Color(30, 41, 38);
+    private static Color MUTED = new Color(92, 108, 101);
+    private static Color PRIMARY = new Color(31, 122, 90);
+    private static Color PRIMARY_DARK = new Color(18, 84, 62);
+    private static Color PRIMARY_LIGHT = new Color(214, 236, 226);
+    private static Color DANGER = new Color(188, 48, 58);
+    private static Color STRIPE = new Color(246, 250, 248);
+    private static Color SEL_BG = new Color(200, 230, 216);
+    private static Color TABLE_HEAD = new Color(228, 240, 234);
+    private static Color GOOD_BG = new Color(224, 244, 233);
+    private static Color BAD_BG = new Color(255, 230, 230);
+    private static Color HINT_BG = new Color(255, 249, 230);
+    private static Color HINT_ACCENT = new Color(231, 170, 40);
+    private static Color GREEN = PRIMARY;
+    private static Color RED = DANGER;
+    // Colours that used to be hard-coded light values (unreadable with light text in dark mode)
+    private static Color ACCENT_TEXT = new Color(18, 84, 62);          // green text on CARD / BG (titles, totals, selected tab)
+    private static Color ALERT_BG = new Color(255, 222, 222);          // inventory row: out of stock / expired
+    private static Color WARN_BG = new Color(255, 239, 205);            // inventory row: low stock
+    private static Color NEUTRAL_FILL = new Color(238, 244, 241);       // neutral button
+    private static Color NEUTRAL_HOVER = new Color(220, 236, 228);
+    private static Color DISABLED_FILL = new Color(228, 232, 230);
+    private static Color DISABLED_TEXT = new Color(110, 122, 117);
+    private static Color RECEIPT_BG = new Color(255, 253, 246);
+    private static final Color HEADER_TIP = new Color(232, 245, 238);   // header bar is always dark green, so its text is always light
+    private boolean darkMode = false;
 
     private static final Border FIELD_BORDER = new CompoundBorder(
             new LineBorder(LINE_DARK, 1, true), new EmptyBorder(6, 9, 6, 9));
@@ -122,6 +134,8 @@ public class GroceryGUI extends JFrame {
     private final JLabel salesLogStatus = new JLabel(" ");
 
     private JTabbedPane tabs;
+    private JLabel headerTitle;
+    private JLabel headerTip;
 
     public GroceryGUI() {
         super("Grocery Point of Sale & Inventory");
@@ -135,19 +149,19 @@ public class GroceryGUI extends JFrame {
 
         getContentPane().setBackground(BG);
 
-        // Checkout comes first: it is what most people open the program to do.
+        // Reports opens first so the summary information is visible immediately.
         tabs = new JTabbedPane();
         tabs.setUI(new ModernTabUI());
         tabs.setOpaque(true);
         tabs.setBackground(CARD);
         tabs.setFont(tabs.getFont().deriveFont(Font.BOLD));
+        tabs.addTab("Reports", buildReportsTab());
         tabs.addTab("Checkout", buildSaleTab());
         tabs.addTab("Products", buildInventoryTab());
         tabs.addTab("Needs Attention", buildPriorityTab());
-        tabs.addTab("Reports", buildReportsTab());
         tabs.addTab("Speed Test", buildBenchmarkTab());
-        String[] tabHelp = {"Ring up a customer (Alt+1)", "See and change the products in the store (Alt+2)",
-                "What to restock or sell first (Alt+3)", "Sales, low stock and expiry reports (Alt+4)",
+        String[] tabHelp = {"Sales, low stock and expiry reports (Alt+1)", "Ring up a customer (Alt+2)",
+                "See and change the products in the store (Alt+3)", "What to restock or sell first (Alt+4)",
                 "Compare how fast the sorting and searching methods are (Alt+5)"};
         for (int i = 0; i < tabHelp.length; i++) {
             tabs.setMnemonicAt(i, KeyEvent.VK_1 + i);
@@ -196,26 +210,30 @@ public class GroceryGUI extends JFrame {
         header.setOpaque(false);
         header.setBorder(new EmptyBorder(12, 20, 12, 20));
 
-        JLabel title = new JLabel("Grocery Store");
-        title.setForeground(Color.WHITE);
-        title.setFont(title.getFont().deriveFont(Font.BOLD, fontSize * 1.4f));
-        JLabel tip = new JLabel("Tip: hold the mouse over any button to see what it does.");
-        tip.setForeground(PRIMARY_LIGHT);
+        headerTitle = new JLabel("Grocery Store");
+        headerTitle.setForeground(Color.WHITE);
+        headerTitle.setFont(headerTitle.getFont().deriveFont(Font.BOLD, fontSize * 1.4f));
+        headerTip = new JLabel("Tip: hold the mouse over any button to see what it does.");
+        headerTip.setForeground(HEADER_TIP);
         JPanel text = panel(new GridLayout(0, 1, 0, 2));
-        text.add(title);
-        text.add(tip);
+        text.add(headerTitle);
+        text.add(headerTip);
         header.add(text, BorderLayout.WEST);
 
         JButton smaller = new PillButton("A-", PillButton.Kind.NEUTRAL);
         JButton larger = new PillButton("A+", PillButton.Kind.NEUTRAL);
+        JButton themeToggle = new PillButton(darkMode ? "Light mode" : "Dark mode", PillButton.Kind.NEUTRAL);
         smaller.setToolTipText("Make all text smaller (Ctrl and minus)");
         larger.setToolTipText("Make all text bigger (Ctrl and plus)");
+        themeToggle.setToolTipText("Switch between light and dark mode");
         smaller.addActionListener(e -> changeTextSize(fontSize - FONT_STEP));
         larger.addActionListener(e -> changeTextSize(fontSize + FONT_STEP));
-        JLabel sizeLabel = new JLabel("Text size:");
-        sizeLabel.setForeground(Color.WHITE);
+        themeToggle.addActionListener(e -> {
+            applyTheme(!darkMode);
+            themeToggle.setText(darkMode ? "Light mode" : "Dark mode");
+        });
         JPanel size = panel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        size.add(sizeLabel);
+        size.add(themeToggle);
         size.add(smaller);
         size.add(larger);
         header.add(size, BorderLayout.EAST);
@@ -280,7 +298,7 @@ public class GroceryGUI extends JFrame {
         p.add(suggestPane, BorderLayout.EAST);
 
         totalLabel.setFont(totalLabel.getFont().deriveFont(Font.BOLD, fontSize * 1.6f));
-        totalLabel.setForeground(PRIMARY_DARK);
+        totalLabel.setForeground(ACCENT_TEXT);
         JPanel totalRow = panel(new FlowLayout(FlowLayout.RIGHT));
         totalRow.add(totalLabel);
 
@@ -487,7 +505,8 @@ public class GroceryGUI extends JFrame {
         JTextArea area = new JTextArea(text, Math.min(lines + 1, 28), 46);
         area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, fontSize));
         area.setEditable(false);
-        area.setBackground(new Color(255, 253, 246));
+        area.setBackground(RECEIPT_BG);
+        area.setCaretColor(TEXT);
         area.setForeground(TEXT);
         area.setBorder(new EmptyBorder(10, 14, 10, 14));
         cart = new Cart();
@@ -856,7 +875,7 @@ public class GroceryGUI extends JFrame {
         JPanel p = page();
 
         salesLabel.setFont(salesLabel.getFont().deriveFont(Font.BOLD, fontSize * 1.15f));
-        salesLabel.setForeground(PRIMARY_DARK);
+        salesLabel.setForeground(ACCENT_TEXT);
         JPanel summaryCard = card(new BorderLayout());
         summaryCard.add(salesLabel, BorderLayout.CENTER);
         p.add(summaryCard, BorderLayout.NORTH);
@@ -1172,6 +1191,11 @@ public class GroceryGUI extends JFrame {
         return r == 0;
     }
 
+    private static Color contrastText(Color bg) {
+        double luminance = (0.299 * bg.getRed() + 0.587 * bg.getGreen() + 0.114 * bg.getBlue()) / 255.0;
+        return luminance > 0.62 ? Color.BLACK : Color.WHITE;
+    }
+
     // ---- text size
 
     /** Makes all text bigger or smaller, including tables, buttons and later pop-up dialogs. */
@@ -1188,7 +1212,147 @@ public class GroceryGUI extends JFrame {
         scaleTree(getContentPane(), ratio);
         revalidate();
         repaint();
-        setStatus("Text size is now " + fontSize + ".", false);
+    }
+
+    private void applyTheme(boolean dark) {
+        darkMode = dark;
+        if (dark) {
+            BG = new Color(15, 21, 29);
+            CARD = new Color(28, 38, 48);
+            LINE = new Color(59, 74, 88);
+            LINE_DARK = new Color(78, 94, 110);
+            TEXT = new Color(235, 240, 244);
+            MUTED = new Color(170, 184, 195);
+            PRIMARY = new Color(82, 165, 125);
+            PRIMARY_DARK = new Color(55, 120, 93);
+            PRIMARY_LIGHT = new Color(172, 222, 196);
+            DANGER = new Color(215, 103, 89);
+            STRIPE = new Color(22, 35, 45);
+            SEL_BG = new Color(46, 76, 67);
+            TABLE_HEAD = new Color(37, 50, 62);
+            GOOD_BG = new Color(27, 59, 46);
+            BAD_BG = new Color(66, 32, 31);
+            HINT_BG = new Color(48, 42, 32);
+            HINT_ACCENT = new Color(224, 173, 74);
+            ACCENT_TEXT = new Color(150, 214, 182);
+            ALERT_BG = new Color(104, 44, 48);
+            WARN_BG = new Color(98, 74, 28);
+            NEUTRAL_FILL = new Color(44, 58, 71);
+            NEUTRAL_HOVER = new Color(60, 78, 94);
+            DISABLED_FILL = new Color(36, 46, 56);
+            DISABLED_TEXT = new Color(140, 155, 166);
+            RECEIPT_BG = CARD;
+        } else {
+            BG = new Color(243, 247, 245);
+            CARD = Color.WHITE;
+            LINE = new Color(214, 222, 218);
+            LINE_DARK = new Color(178, 192, 186);
+            TEXT = new Color(30, 41, 38);
+            MUTED = new Color(92, 108, 101);
+            PRIMARY = new Color(31, 122, 90);
+            PRIMARY_DARK = new Color(18, 84, 62);
+            PRIMARY_LIGHT = new Color(214, 236, 226);
+            DANGER = new Color(188, 48, 58);
+            STRIPE = new Color(246, 250, 248);
+            SEL_BG = new Color(200, 230, 216);
+            TABLE_HEAD = new Color(228, 240, 234);
+            GOOD_BG = new Color(224, 244, 233);
+            BAD_BG = new Color(255, 230, 230);
+            HINT_BG = new Color(255, 249, 230);
+            HINT_ACCENT = new Color(231, 170, 40);
+            ACCENT_TEXT = new Color(18, 84, 62);
+            ALERT_BG = new Color(255, 222, 222);
+            WARN_BG = new Color(255, 239, 205);
+            NEUTRAL_FILL = new Color(238, 244, 241);
+            NEUTRAL_HOVER = new Color(220, 236, 228);
+            DISABLED_FILL = new Color(228, 232, 230);
+            DISABLED_TEXT = new Color(110, 122, 117);
+            RECEIPT_BG = new Color(255, 253, 246);
+        }
+        GREEN = PRIMARY;
+        RED = DANGER;
+
+        getContentPane().setBackground(BG);
+        if (tabs != null) {
+            tabs.setBackground(CARD);
+            tabs.setForeground(TEXT);
+        }
+        if (statusLabel != null) {
+            statusLabel.setBackground(GOOD_BG);
+            statusLabel.setForeground(contrastText(GOOD_BG));
+            statusLabel.setBorder(statusBorder(GREEN));
+        }
+        applyThemeToTree(getContentPane());
+        // after the tree walk, which would otherwise paint these with TEXT (dark text on the dark green bar in light mode)
+        if (headerTitle != null) {
+            headerTitle.setForeground(Color.WHITE);
+            headerTitle.setFont(headerTitle.getFont().deriveFont(Font.BOLD, fontSize * 1.4f));
+        }
+        if (headerTip != null) {
+            headerTip.setForeground(HEADER_TIP);
+        }
+        if (totalLabel != null) totalLabel.setForeground(ACCENT_TEXT);
+        if (salesLabel != null) salesLabel.setForeground(ACCENT_TEXT);
+        if (inventoryCountLabel != null) inventoryCountLabel.setForeground(MUTED);
+        if (sortInfoLabel != null) sortInfoLabel.setForeground(MUTED);
+        if (salesLogStatus != null) salesLogStatus.setForeground(MUTED);
+        if (benchStatus != null) benchStatus.setForeground(MUTED);
+        revalidate();
+        repaint();
+    }
+
+    private void applyThemeToTree(Component component) {
+        if (component instanceof JComponent) {
+            JComponent j = (JComponent) component;
+            if (component instanceof JPanel) {
+                j.setBackground(BG);
+            }
+            if (component instanceof JButton) {
+                j.setForeground(TEXT);
+            } else if (component instanceof JLabel) {
+                j.setForeground(TEXT);
+            } else if (component instanceof JTextArea || component instanceof JTextField || component instanceof JComboBox
+                    || component instanceof JSpinner || component instanceof JTable || component instanceof JList) {
+                j.setBackground(CARD);
+                j.setForeground(TEXT);
+                if ("hint".equals(j.getName())) j.setBackground(HINT_BG);
+            }
+            if (component instanceof JTextComponent) {
+                ((JTextComponent) component).setCaretColor(TEXT);      // default caret is black = invisible on dark
+                ((JTextComponent) component).setDisabledTextColor(MUTED);
+            }
+            if (j.getBorder() instanceof TitledBorder) {
+                TitledBorder tb = (TitledBorder) j.getBorder();
+                tb.setTitleColor(ACCENT_TEXT);
+                tb.setBorder(new LineBorder(LINE, 1, true));
+            }
+            if (component instanceof JScrollPane) {
+                JScrollPane pane = (JScrollPane) component;
+                pane.getViewport().setBackground(CARD);
+            }
+            if (component instanceof JTable) {
+                JTable table = (JTable) component;
+                table.setBackground(CARD);
+                table.setForeground(TEXT);
+                table.setSelectionBackground(SEL_BG);
+                table.setSelectionForeground(contrastText(SEL_BG));
+                table.setGridColor(LINE);
+                if (table.getTableHeader() != null) {
+                    table.getTableHeader().setBackground(TABLE_HEAD);
+                    table.getTableHeader().setForeground(contrastText(TABLE_HEAD));
+                }
+            }
+            if (component instanceof JTabbedPane) {
+                JTabbedPane pane = (JTabbedPane) component;
+                pane.setBackground(CARD);
+                pane.setForeground(TEXT);
+            }
+        }
+        if (component instanceof Container) {
+            for (Component child : ((Container) component).getComponents()) {
+                applyThemeToTree(child);
+            }
+        }
     }
 
     private void installTextSizeShortcuts() {
@@ -1295,7 +1459,7 @@ public class GroceryGUI extends JFrame {
         Font f = UIManager.getFont("Label.font");
         f = f == null ? new Font(Font.SANS_SERIF, Font.PLAIN, DEFAULT_FONT) : f;
         return BorderFactory.createTitledBorder(new LineBorder(LINE, 1, true), " " + title + " ",
-                TitledBorder.LEFT, TitledBorder.TOP, f.deriveFont(Font.BOLD), PRIMARY_DARK);
+                TitledBorder.LEFT, TitledBorder.TOP, f.deriveFont(Font.BOLD), ACCENT_TEXT);
     }
 
     /** Wraps a table in a white scroll area, with an optional title. */
@@ -1316,6 +1480,8 @@ public class GroceryGUI extends JFrame {
         a.setFont(UIManager.getFont("Label.font"));
         a.setForeground(TEXT);
         a.setBackground(HINT_BG);
+        a.setName("hint");
+        a.setCaretColor(TEXT);
         a.setBorder(new CompoundBorder(new MatteBorder(0, 5, 0, 0, HINT_ACCENT), new EmptyBorder(10, 14, 10, 14)));
         return a;
     }
@@ -1328,9 +1494,9 @@ public class GroceryGUI extends JFrame {
         table.setShowGrid(false);
         table.setShowHorizontalLines(true);
         table.setIntercellSpacing(new Dimension(0, 1));
-        table.setGridColor(new Color(232, 238, 235));
+        table.setGridColor(LINE);
         table.setSelectionBackground(SEL_BG);
-        table.setSelectionForeground(TEXT);
+        table.setSelectionForeground(contrastText(SEL_BG));
         table.setForeground(TEXT);
         table.setBackground(CARD);
         table.setFillsViewportHeight(true);
@@ -1467,8 +1633,8 @@ public class GroceryGUI extends JFrame {
             Component c = super.getTableCellRendererComponent(table, value, selected, focus, row, col);
             if (!selected) {
                 String status = String.valueOf(table.getModel().getValueAt(table.convertRowIndexToModel(row), 7));
-                if (status.equals("OUT OF STOCK") || status.equals("EXPIRED")) c.setBackground(new Color(255, 222, 222));
-                else if (status.equals("LOW STOCK"))                          c.setBackground(new Color(255, 239, 205));
+                if (status.equals("OUT OF STOCK") || status.equals("EXPIRED")) c.setBackground(ALERT_BG);
+                else if (status.equals("LOW STOCK"))                          c.setBackground(WARN_BG);
             }
             return c;
         }
@@ -1511,16 +1677,17 @@ public class GroceryGUI extends JFrame {
 
             Color fill, textColor;
             if (!isEnabled()) {
-                fill = new Color(228, 232, 230);
-                textColor = new Color(140, 152, 147);
+                fill = DISABLED_FILL;
+                textColor = DISABLED_TEXT;
             } else {
                 switch (kind) {
-                    case PRIMARY: fill = PRIMARY; textColor = Color.WHITE; break;
-                    case DANGER:  fill = DANGER;  textColor = Color.WHITE; break;
-                    default:      fill = new Color(238, 244, 241); textColor = TEXT; break;
+                    case PRIMARY: fill = PRIMARY; break;
+                    case DANGER:  fill = DANGER; break;
+                    default:      fill = NEUTRAL_FILL; break;
                 }
                 if (getModel().isPressed()) fill = fill.darker();
-                else if (hover) fill = kind == Kind.NEUTRAL ? new Color(220, 236, 228) : fill.brighter();
+                else if (hover) fill = kind == Kind.NEUTRAL ? NEUTRAL_HOVER : fill.brighter();
+                textColor = contrastText(fill);
             }
 
             int w = getWidth(), h = getHeight();
@@ -1583,7 +1750,7 @@ public class GroceryGUI extends JFrame {
             Graphics2D g2 = (Graphics2D) g;
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
             g2.setFont(font);
-            g2.setColor(!tabPane.isEnabledAt(tabIndex) ? LINE_DARK : (isSelected ? PRIMARY_DARK : MUTED));
+            g2.setColor(!tabPane.isEnabledAt(tabIndex) ? LINE_DARK : (isSelected ? ACCENT_TEXT : MUTED));
             BasicGraphicsUtils.drawStringUnderlineCharAt(g2, title, tabPane.getDisplayedMnemonicIndexAt(tabIndex),
                     textRect.x, textRect.y + metrics.getAscent());
         }
